@@ -1,0 +1,528 @@
+// =============================================================================
+// SEQUENTIAL PRISMA SCHEMA - ITERATIVE DEVELOPMENT STRUCTURE
+// =============================================================================
+// Development Order:
+// Phase 1: Foundation (Auth & Company Management)
+// Phase 2: Site Management
+// Phase 3: Emissions Data Collection
+// Phase 4: Environmental Reporting
+// Phase 5: Social & Governance Reporting
+// Phase 6: EU Taxonomy & Assurance
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// PHASE 1: FOUNDATION - Authentication & Company Management
+// =============================================================================
+// Start here: Build login, company CRUD, user management
+// UI Components: Login form, Company dashboard, User management table
+// =============================================================================
+
+enum DataStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  PUBLISHED
+  REJECTED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String?
+  role      String   @default("user") // "admin", "manager", "auditor", "user"
+  companyId String
+  
+  // Core relationship
+  company Company @relation("CompanyUsers", fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Phase 1: Company audit trails
+  companiesCreated Company[] @relation("CompanyCreator")
+  companiesUpdated Company[] @relation("CompanyUpdater")
+  companiesDeleted Company[] @relation("CompanyDeleter")
+  
+  // Phase 2: Site audit trails
+  sitesCreated Site[] @relation("SiteCreator")
+  sitesUpdated Site[] @relation("SiteUpdater")
+  
+  // Phase 4: Environmental audit trails
+  environmentalReportsCreated EnvironmentalTopics[] @relation("EnvCreator")
+  environmentalReportsUpdated EnvironmentalTopics[] @relation("EnvUpdater")
+  
+  // Phase 5: Social & Governance audit trails
+  socialReportsCreated     SocialTopics[]  @relation("SocialCreator")
+  socialReportsUpdated     SocialTopics[]  @relation("SocialUpdater")
+  governanceReportsCreated SGovernance[]   @relation("GovCreator")
+  governanceReportsUpdated SGovernance[]   @relation("GovUpdater")
+  
+  // Phase 6: Taxonomy & Assurance audit trails
+  taxonomyReportsCreated  EUTaxonomy[] @relation("TaxCreator")
+  taxonomyReportsUpdated  EUTaxonomy[] @relation("TaxUpdater")
+  assuranceReportsCreated Assurance[]  @relation("AssuranceCreator")
+  assuranceReportsUpdated Assurance[]  @relation("AssuranceUpdater")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([companyId])
+  @@index([email])
+}
+
+model Company {
+  id                      String   @id @default(uuid())
+  name                    String   @unique
+  legal_entity            String
+  industry                String
+  country_of_registration String   @default("Germany")
+
+  // Audit trail
+  createdBy String?
+  creator   User?     @relation("CompanyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?     @relation("CompanyUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  deletedBy String?
+  deleter   User?     @relation("CompanyDeleter", fields: [deletedBy], references: [id], onDelete: SetNull)
+
+  // Phase 1: Basic relations
+  users User[] @relation("CompanyUsers")
+  
+  // Phase 2: Site management
+  sites Site[]
+  
+  // Phase 3: Emissions data
+  emissionRecords EmissionRecord[]
+  
+  // Phase 4: Environmental reporting
+  general_disclosures Esrs2GeneralDisclosures[]
+  environmental_data  EnvironmentalTopics[]
+  
+  // Phase 5: Social & Governance
+  social_data     SocialTopics[]
+  governance_data SGovernance[]
+  
+  // Phase 6: Taxonomy & Assurance
+  taxonomy_data     EUTaxonomy[]
+  assurance_reports Assurance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// PHASE 2: SITE MANAGEMENT
+// =============================================================================
+// Build after Phase 1 is complete
+// UI Components: Site list, Site form (create/edit), Site selector dropdown
+// Backend: Site CRUD operations, site-level filtering
+// =============================================================================
+
+model Site {
+  id        String    @id @default(uuid())
+  companyId String
+  name      String
+  address   String?
+  country   String    @default("DE")
+
+  // Audit trail
+  createdBy String?
+  creator   User?     @relation("SiteCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?     @relation("SiteUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+
+  // Parent relationship
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Phase 3: Activity data connections
+  energyActivities EnergyActivity[]
+  fuelActivities   FuelActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+// =============================================================================
+// PHASE 3: EMISSIONS DATA COLLECTION
+// =============================================================================
+// Build after Phase 2 is complete
+// UI Components: 
+//   - Energy activity form (electricity, heating consumption)
+//   - Fuel activity form (gas, diesel consumption)
+//   - Emission factor library/selector
+//   - Calculation results table
+// Backend: Activity CRUD, emission calculation engine, factor management
+// =============================================================================
+
+// 3A: Emission Factors (Setup first - master data)
+model EmissionFactor {
+  id           String   @id @default(uuid())
+  scope        String   // "Scope 1", "Scope 2 Location-Based", etc.
+  activityType String   // "Purchased Electricity", "Natural Gas", etc.
+  region       String   // "Germany", "EU Grid", etc.
+  factor       Float    // The emission factor value
+  unit         String   // "kg CO2e / kWh", "kg CO2e / m3", etc.
+  
+  // Versioning
+  version    String
+  source     String?   // "DEFRA", "IEA", "EPA"
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
+  isActive   Boolean   @default(true)
+  
+  // Used by calculation engine
+  emissionRecords EmissionRecord[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([activityType, region, version])
+  @@index([isActive, validUntil])
+}
+
+// 3B: Raw Activity Data - Energy (Scope 2)
+model EnergyActivity {
+  id          String   @id @default(uuid())
+  siteId      String
+  date        DateTime
+  energyType  String   // "Purchased Electricity", "District Heating"
+  consumption Float    // 50000.00
+  unit        String   // "kWh", "MWh"
+
+  site           Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  emissionRecord EmissionRecord?
+
+  @@index([siteId, date])
+}
+
+// 3C: Raw Activity Data - Fuel (Scope 1)
+model FuelActivity {
+  id       String   @id @default(uuid())
+  siteId   String
+  date     DateTime
+  fuelType String   // "Natural Gas", "Diesel"
+  volume   Float
+  unit     String   // "m3", "liters"
+
+  site           Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  emissionRecord EmissionRecord?
+
+  @@index([siteId, date])
+}
+
+// 3D: Calculated Emissions (Result of calculation engine)
+model EmissionRecord {
+  id               String   @id @default(uuid())
+  companyId        String
+  reportId         String?  // Links to EnvironmentalTopics in Phase 4
+  scope            String   // "Scope 1", "Scope 2 Location-Based"
+  tco2e_calculated Float
+  date_calculated  DateTime @default(now())
+
+  // Source activity (one-to-one)
+  energyActivity   EnergyActivity? @relation(fields: [energyActivityId], references: [id])
+  energyActivityId String?         @unique
+  fuelActivity     FuelActivity?   @relation(fields: [fuelActivityId], references: [id])
+  fuelActivityId   String?         @unique
+
+  // Audit trail: which factor was used
+  emissionFactorId String
+  emissionFactor   EmissionFactor @relation(fields: [emissionFactorId], references: [id])
+
+  // Parent relationships
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  environmentalReport EnvironmentalTopics? @relation(fields: [reportId], references: [id])
+
+  @@index([companyId, scope])
+}
+
+// =============================================================================
+// PHASE 4: ENVIRONMENTAL REPORTING (ESRS E1-E5)
+// =============================================================================
+// Build after Phase 3 is complete
+// UI Components:
+//   - ESRS 2 General Disclosures form
+//   - Environmental Topics form (E1-E5 tabs)
+//   - Emission records aggregation dashboard
+//   - Report status workflow
+// Backend: Report CRUD, emission aggregation, status transitions
+// =============================================================================
+
+// 4A: ESRS 2 General Disclosures
+model Esrs2GeneralDisclosures {
+  id                           String   @id @default(uuid())
+  companyId                    String
+  reportingPeriod              DateTime
+  consolidationScope           String   @db.Text
+  valueChainBoundaries         String   @db.Text
+  boardRoleInSustainability    String   @db.Text
+  esgIntegrationInRemuneration Int?
+  assessmentProcess            String   @db.Text
+  
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
+
+// 4B: Environmental Topics (E1-E5)
+model EnvironmentalTopics {
+  id              String     @id @default(uuid())
+  companyId       String
+  reportingPeriod DateTime
+  
+  // Audit & workflow
+  createdBy String?
+  creator   User?      @relation("EnvCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?      @relation("EnvUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  status    DataStatus @default(DRAFT)
+  
+  // E1 - Climate Change
+  e1_material        Boolean @default(false)
+  e1_climatePolicy   String? @db.Text
+  e1_reductionTarget String?
+  
+  // Links to calculated emissions from Phase 3
+  emissionRecords EmissionRecord[]
+  
+  // E2 - Pollution
+  e2_nox_t_per_year Float?
+  e2_sox_t_per_year Float?
+  
+  // E3 - Water & Marine
+  e3_water_withdrawal_m3      Float?
+  e3_water_recycling_rate_pct Float?
+  
+  // E4 - Biodiversity
+  e4_protected_areas_impact String? @db.Text
+  
+  // E5 - Circular Economy
+  e5_recycling_rate_pct           Float?
+  e5_recycled_input_materials_pct Float?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
+
+// =============================================================================
+// PHASE 5: SOCIAL & GOVERNANCE REPORTING (ESRS S1-S4, G1)
+// =============================================================================
+// Build after Phase 4 is complete
+// UI Components:
+//   - Social Topics form (S1-S4 sections/tabs)
+//   - Governance form (G1 sections)
+//   - LkSG compliance tracking
+// Backend: Social/Governance report CRUD, status management
+// =============================================================================
+
+// 5A: Social Topics (S1-S4)
+model SocialTopics {
+  id              String     @id @default(uuid())
+  companyId       String
+  reportingPeriod DateTime
+  
+  // Audit & workflow
+  createdBy String?
+  creator   User?      @relation("SocialCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?      @relation("SocialUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  status    DataStatus @default(DRAFT)
+  
+  // S1 – Own Workforce
+  s1_material                    Boolean @default(false)
+  s1_employee_count_by_contract  String? @db.Text
+  s1_health_and_safety           String? @db.Text
+  s1_training_hours_per_employee Int?
+
+  // S2 – Workers in Value Chain (LkSG)
+  s2_material              Boolean @default(false)
+  s2_pct_suppliers_audited Int?
+  s2_remediation_actions   String? @db.Text
+
+  // S3 – Affected Communities
+  s3_material                Boolean @default(false)
+  s3_community_engagement    String? @db.Text
+  s3_complaints_and_outcomes String?
+
+  // S4 – Consumers & End Users
+  s4_material                 Boolean @default(false)
+  s4_product_safety_incidents Int?
+  s4_consumer_remediation     String? @db.Text
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
+
+// 5B: Governance (G1)
+model SGovernance {
+  id              String     @id @default(uuid())
+  companyId       String
+  reportingPeriod DateTime
+  
+  // Audit & workflow
+  createdBy String?
+  creator   User?      @relation("GovCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?      @relation("GovUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  status    DataStatus @default(DRAFT)
+
+  // G1 – Board Structure
+  g1_board_composition_independence String?
+  g1_gender_diversity_pct           Int?
+  g1_esg_oversight                  String? @db.Text
+
+  // G1 – Business Conduct
+  g1_whistleblower_cases      String? @db.Text
+  g1_anti_corruption_policies String?
+  g1_related_party_controls   String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
+
+// =============================================================================
+// PHASE 6: EU TAXONOMY & ASSURANCE
+// =============================================================================
+// Build after Phase 5 is complete
+// UI Components:
+//   - EU Taxonomy eligibility/alignment form
+//   - DNSH assessment checklist
+//   - Assurance report upload & management
+//   - Assurance checklist
+// Backend: Taxonomy calculation logic, PDF upload, assurance workflow
+// =============================================================================
+
+enum DNSHStatus {
+  ALL_OBJECTIVES_PASSED
+  SOME_OBJECTIVES_NOT_MET
+  ASSESSMENT_IN_PROGRESS
+}
+
+enum SocialSafeguardsStatus {
+  FULL_COMPLIANCE
+  NON_COMPLIANCE
+  PARTIAL_REMEDIATION
+}
+
+enum AssuranceScope {
+  LIMITED
+  REASONABLE
+  MIXED
+}
+
+// 6A: EU Taxonomy Reporting
+model EUTaxonomy {
+  id              String     @id @default(uuid())
+  companyId       String
+  reportingPeriod DateTime
+  
+  // Audit & workflow
+  createdBy String?
+  creator   User?      @relation("TaxCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?      @relation("TaxUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  status    DataStatus @default(DRAFT)
+
+  // Economic Activities
+  economicActivities         String? @db.Text
+  taxonomyEligibleRevenuePct Int?
+  taxonomyAlignedRevenuePct  Int?
+
+  // DNSH & Safeguards
+  technicalScreeningCriteria String?                 @db.Text
+  dnsh_status                DNSHStatus?
+  social_safeguards_status   SocialSafeguardsStatus?
+
+  // CapEx & OpEx
+  taxonomyEligibleCapexPct Int?
+  taxonomyAlignedCapexPct  Int?
+  taxonomyAlignedOpexPct   Int?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
+
+// 6B: Assurance & Audit Reports
+model Assurance {
+  id              String     @id @default(uuid())
+  companyId       String
+  reportingPeriod DateTime
+  
+  // Audit & workflow
+  createdBy String?
+  creator   User?      @relation("AssuranceCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy String?
+  updater   User?      @relation("AssuranceUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  deletedAt DateTime?
+  status    DataStatus @default(DRAFT)
+
+  // Assurance Details
+  assuranceProvider          String?
+  scopeOfAssurance           AssuranceScope?
+  reportingStandards         String?
+  assuranceConclusionSummary String? @db.Text
+
+  // PDF Upload
+  assuranceReportUrl       String?
+  assuranceReportFilename  String?
+  assuranceReportMime      String?
+  assuranceReportSizeBytes Int?
+
+  // Findings
+  materialMisstatementsIdentified String? @db.Text
+  managementResponse              String? @db.Text
+
+  // Assurance Checklist
+  checklist_data_collection_documented   Boolean @default(false)
+  checklist_internal_controls_tested     Boolean @default(false)
+  checklist_source_documentation_trail   Boolean @default(false)
+  checklist_calculation_method_validated Boolean @default(false)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, reportingPeriod])
+  @@index([companyId])
+}
