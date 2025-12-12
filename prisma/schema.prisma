@@ -1,4 +1,4 @@
-// --- 1. Generator and Datasource Configuration ---
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,7 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- 2. Enums ---
 enum DataStatus {
   DRAFT
   UNDER_REVIEW
@@ -17,57 +16,19 @@ enum DataStatus {
   REJECTED
 }
 
-enum DNSHStatus {
-  ALL_OBJECTIVES_PASSED
-  SOME_OBJECTIVES_NOT_MET
-  ASSESSMENT_IN_PROGRESS
-}
-
-enum SocialSafeguardsStatus {
-  FULL_COMPLIANCE
-  NON_COMPLIANCE
-  PARTIAL_REMEDIATION
-}
-
-enum AssuranceScope {
-  LIMITED
-  REASONABLE
-  MIXED
-}
-
-// --- 3. User Model (Authentication & Audit) ---
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
   name      String
-  password  String?  // For credentials auth, or null for OAuth
-  role      String   @default("user") // "admin", "manager", "auditor", "user"
+  password  String?
+  role      String   @default("user")
   companyId String
   
-  company   Company  @relation("CompanyUsers", fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation("CompanyUsers", fields: [companyId], references: [id], onDelete: Cascade)
   
-  // Complete audit trail back-relations
-  companiesCreated            Company[]             @relation("CompanyCreator")
-  companiesUpdated            Company[]             @relation("CompanyUpdater")
-  companiesDeleted            Company[]             @relation("CompanyDeleter")
-  
-  sitesCreated                Site[]                @relation("SiteCreator")
-  sitesUpdated                Site[]                @relation("SiteUpdater")
-  
-  environmentalReportsCreated EnvironmentalTopics[] @relation("EnvCreator")
-  environmentalReportsUpdated EnvironmentalTopics[] @relation("EnvUpdater")
-  
-  socialReportsCreated        SocialTopics[]        @relation("SocialCreator")
-  socialReportsUpdated        SocialTopics[]        @relation("SocialUpdater")
-  
-  governanceReportsCreated    SGovernance[]         @relation("GovCreator")
-  governanceReportsUpdated    SGovernance[]         @relation("GovUpdater")
-  
-  taxonomyReportsCreated      EUTaxonomy[]          @relation("TaxCreator")
-  taxonomyReportsUpdated      EUTaxonomy[]          @relation("TaxUpdater")
-  
-  assuranceReportsCreated     Assurance[]           @relation("AssuranceCreator")
-  assuranceReportsUpdated     Assurance[]           @relation("AssuranceUpdater")
+  companiesCreated Company[] @relation("CompanyCreator")
+  companiesUpdated Company[] @relation("CompanyUpdater")
+  companiesDeleted Company[] @relation("CompanyDeleter")
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -76,390 +37,23 @@ model User {
   @@index([email])
 }
 
-// --- 4. Core Multi-Tenancy Models ---
 model Company {
   id                      String   @id @default(uuid())
   name                    String   @unique
-  legal_entity            String   // e.g., GmbH, AG
-  industry                String   // e.g., 'Automotive', 'Machinery'
+  legal_entity            String
+  industry                String
   country_of_registration String   @default("Germany")
 
-  // Audit trail fields
   createdBy String?
-  creator   User?   @relation("CompanyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
+  creator   User?     @relation("CompanyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   updatedBy String?
-  updater   User?   @relation("CompanyUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
+  updater   User?     @relation("CompanyUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
   deletedAt DateTime?
   deletedBy String?
-  deleter   User?   @relation("CompanyDeleter", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deleter   User?     @relation("CompanyDeleter", fields: [deletedBy], references: [id], onDelete: SetNull)
 
-  // Back-relations to all reporting and activity models
-  sites               Site[]
-  users               User[]                       @relation("CompanyUsers")
-  general_disclosures Esrs2GeneralDisclosures[]
-  environmental_data  EnvironmentalTopics[]
-  social_data         SocialTopics[]
-  governance_data     SGovernance[]
-  taxonomy_data       EUTaxonomy[]
-  assurance_reports   Assurance[]
-  emissionRecords     EmissionRecord[]
+  users User[] @relation("CompanyUsers")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
-
-model Site {
-  id        String    @id @default(uuid())
-  companyId String
-  name      String    // e.g., "Main Plant Munich"
-  address   String?
-  country   String    @default("DE")
-
-  // Audit fields
-  createdBy String?
-  creator   User?     @relation("SiteCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?     @relation("SiteUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-
-  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  energyActivities EnergyActivity[]
-  fuelActivities   FuelActivity[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, name])
-  @@index([companyId])
-}
-
-// --- 5. Environmental Calculation Models ---
-
-// Raw data input for Scope 2 calculation
-model EnergyActivity {
-  id          String   @id @default(uuid())
-  siteId      String
-  date        DateTime // Date of the meter reading/invoice
-  energyType  String   // e.g., "Purchased Electricity", "District Heating"
-  consumption Float    // e.g., 50000.00
-  unit        String   // e.g., "kWh", "MWh"
-
-  site           Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  emissionRecord EmissionRecord?
-
-  @@index([siteId, date])
-}
-
-// Raw data input for Scope 1 calculation
-model FuelActivity {
-  id       String   @id @default(uuid())
-  siteId   String
-  date     DateTime // Date fuel was consumed or purchased
-  fuelType String   // e.g., "Natural Gas", "Diesel"
-  volume   Float
-  unit     String   // e.g., "m3", "liters"
-
-  site           Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  emissionRecord EmissionRecord?
-
-  @@index([siteId, date])
-}
-
-// Stores the result of an emission calculation (tCO2e)
-model EmissionRecord {
-  id               String   @id @default(uuid())
-  companyId        String   // Multi-tenancy key
-  reportId         String?  // FK to EnvironmentalTopics
-  scope            String   // e.g., "Scope 1", "Scope 2 Location-Based"
-  tco2e_calculated Float
-  date_calculated  DateTime @default(now())
-
-  // Relationships to activity data (One-to-One)
-  energyActivity   EnergyActivity? @relation(fields: [energyActivityId], references: [id])
-  energyActivityId String?         @unique
-  
-  fuelActivity     FuelActivity?   @relation(fields: [fuelActivityId], references: [id])
-  fuelActivityId   String?         @unique
-
-  // Relationship to emission factor (for audit)
-  emissionFactorId String
-  emissionFactor   EmissionFactor @relation(fields: [emissionFactorId], references: [id])
-
-  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  environmentalReport EnvironmentalTopics? @relation(fields: [reportId], references: [id])
-
-  @@index([companyId, scope])
-}
-
-// Stores verifiable emission factors with versioning
-model EmissionFactor {
-  id           String   @id @default(uuid())
-  scope        String   // e.g., "Scope 2 Location-Based"
-  activityType String   // e.g., "Purchased Electricity"
-  region       String   // e.g., "Germany", "EU Grid"
-  factor       Float    // The emission factor value
-  unit         String   // e.g., "kg CO2e / kWh"
-  
-  // Versioning and tracking
-  version    String   // e.g., "2024-v1", "DEFRA-2024"
-  source     String?  // e.g., "DEFRA", "IEA", "EPA"
-  validFrom  DateTime @default(now())
-  validUntil DateTime?
-  isActive   Boolean  @default(true)
-  
-  emissionRecords EmissionRecord[]
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  @@unique([activityType, region, version])
-  @@index([isActive, validUntil])
-}
-
-// --- 6. CSRD/ESRS Reporting Models ---
-
-// ESRS 2: General Disclosures
-model Esrs2GeneralDisclosures {
-  id                           String   @id @default(uuid())
-  companyId                    String
-  reportingPeriod              DateTime // First day of period (e.g., 2024-12-01)
-  consolidationScope           String   @db.Text
-  valueChainBoundaries         String   @db.Text
-  boardRoleInSustainability    String   @db.Text
-  esgIntegrationInRemuneration Int?     // percentage 0-100
-  assessmentProcess            String   @db.Text
-  
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
-}
-
-
-
-
-
-
-
-// E: Environmental Topics (aggregated report)
-model EnvironmentalTopics {
-  id              String   @id @default(uuid())
-  companyId       String
-  reportingPeriod DateTime
-  
-  // Audit fields
-  createdBy String?
-  creator   User?   @relation("EnvCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?   @relation("EnvUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-  status    DataStatus @default(DRAFT)
-  
-  // E1 - Climate Change
-  e1_material        Boolean @default(false)
-  e1_climatePolicy   String? @db.Text
-  e1_reductionTarget String?
-  
-  // Calculated emissions from EmissionRecord
-  emissionRecords EmissionRecord[]
-  
-  // E2 - Pollution
-  e2_nox_t_per_year Float?
-  e2_sox_t_per_year Float?
-  
-  // E3 - Water & Marine
-  e3_water_withdrawal_m3      Float?
-  e3_water_recycling_rate_pct Float?
-  
-  // E4 - Biodiversity
-  e4_protected_areas_impact String? @db.Text
-  
-  // E5 - Circular Economy
-  e5_recycling_rate_pct           Float?
-  e5_recycled_input_materials_pct Float?
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
-}
-
-// S: Social Topics (ESRS S1-S4)
-model SocialTopics {
-  id              String     @id @default(uuid())
-  companyId       String
-  reportingPeriod DateTime
-  
-  // Audit fields
-  createdBy String?
-  creator   User?      @relation("SocialCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?      @relation("SocialUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-  status    DataStatus @default(DRAFT)
-  
-  // S1 – Own Workforce
-  s1_material                    Boolean @default(false)
-  s1_employee_count_by_contract  String? @db.Text
-  s1_health_and_safety           String? @db.Text
-  s1_training_hours_per_employee Int?
-
-  // S2 – Workers in the Value Chain (LkSG relevance)
-  s2_material            Boolean @default(false)
-  s2_pct_suppliers_audited Int?
-  s2_remediation_actions String? @db.Text
-
-  // S3 – Affected Communities
-  s3_material                Boolean @default(false)
-  s3_community_engagement    String? @db.Text
-  s3_complaints_and_outcomes String?
-
-  // S4 – Consumers & End Users
-  s4_material                 Boolean @default(false)
-  s4_product_safety_incidents Int?
-  s4_consumer_remediation     String? @db.Text
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
-}
-
-// G: Governance (ESRS G1)
-model SGovernance {
-  id              String     @id @default(uuid())
-  companyId       String
-  reportingPeriod DateTime
-  
-  // Audit fields
-  createdBy String?
-  creator   User?      @relation("GovCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?      @relation("GovUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-  status    DataStatus @default(DRAFT)
-
-  // G1 – Board Structure & Independence
-  g1_board_composition_independence String?
-  g1_gender_diversity_pct           Int?
-  g1_esg_oversight                  String? @db.Text
-
-  // G1 – Business Conduct & Compliance
-  g1_whistleblower_cases    String? @db.Text
-  g1_anti_corruption_policies String?
-  g1_related_party_controls String?
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
-}
-
-// EU Taxonomy Reporting
-model EUTaxonomy {
-  id              String     @id @default(uuid())
-  companyId       String
-  reportingPeriod DateTime
-  
-  // Audit fields
-  createdBy String?
-  creator   User?      @relation("TaxCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?      @relation("TaxUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-  status    DataStatus @default(DRAFT)
-
-  // Economic activities mapping
-  economicActivities         String? @db.Text
-  taxonomyEligibleRevenuePct Int?
-  taxonomyAlignedRevenuePct  Int?
-
-  // DNSH & Safeguards
-  technicalScreeningCriteria String?                 @db.Text
-  dnsh_status                DNSHStatus?
-  social_safeguards_status   SocialSafeguardsStatus?
-
-  // CapEx & OpEx alignment
-  taxonomyEligibleCapexPct Int?
-  taxonomyAlignedCapexPct  Int?
-  taxonomyAlignedOpexPct   Int?
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
-}
-
-// Assurance & Audit Reports
-model Assurance {
-  id              String     @id @default(uuid())
-  companyId       String
-  reportingPeriod DateTime
-  
-  // Audit fields
-  createdBy String?
-  creator   User?      @relation("AssuranceCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  updatedBy String?
-  updater   User?      @relation("AssuranceUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
-  
-  deletedAt DateTime?
-  status    DataStatus @default(DRAFT)
-
-  // Assurance Engagement Details
-  assuranceProvider          String?
-  scopeOfAssurance           AssuranceScope?
-  reportingStandards         String?
-  assuranceConclusionSummary String? @db.Text
-
-  // PDF Upload
-  assuranceReportUrl       String?
-  assuranceReportFilename  String?
-  assuranceReportMime      String?
-  assuranceReportSizeBytes Int?
-
-  // Documentation & Findings
-  materialMisstatementsIdentified String? @db.Text
-  managementResponse              String? @db.Text
-
-  // Checklist
-  checklist_data_collection_documented   Boolean @default(false)
-  checklist_internal_controls_tested     Boolean @default(false)
-  checklist_source_documentation_trail   Boolean @default(false)
-  checklist_calculation_method_validated Boolean @default(false)
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, reportingPeriod])
-  @@index([companyId])
 }
