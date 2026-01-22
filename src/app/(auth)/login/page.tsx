@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { refreshUser } = useAuth(); // Import refreshUser from AuthContext
+  
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -35,14 +38,11 @@ export default function LoginPage() {
         return;
       }
 
-      // Force a hard navigation and refresh
-      window.location.href = '/dashboard';
+      // Step 1: Refresh user data in AuthContext
+      await refreshUser();
       
-      // Alternative approach (if above doesn't work):
-      // router.push('/dashboard');
-      // setTimeout(() => {
-      //   window.location.reload();
-      // }, 100);
+      // Step 2: Navigate to dashboard
+      router.push('/dashboard');
       
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -60,7 +60,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6 ">
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700">
             Email Address
